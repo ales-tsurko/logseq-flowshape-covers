@@ -1,6 +1,11 @@
 import { build } from 'esbuild';
-import { mkdir, readFile, writeFile, readdir, unlink } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, readdir, unlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+await access('external/flowshape/src/patterns/index.ts').catch(() => {
+  throw new Error('Flowshape is missing. Run: git submodule update --init --recursive');
+});
 await mkdir('dist', { recursive: true });
 const digest = text => createHash('sha256').update(text).digest('hex').slice(0, 10);
 async function bundle(name, entry, options = {}) {
@@ -10,7 +15,7 @@ async function bundle(name, entry, options = {}) {
   await writeFile(`dist/${file}`, output);
   return file;
 }
-const sdk = await bundle('sdk', 'vendor/logseq-sdk/src/LSPlugin.user.ts', { inject: ['src/browser-process.ts'], define: { 'process.env.NODE_ENV': '"production"', LIB_VERSION: '"0.3.4"' } });
+const sdk = await bundle('sdk', require.resolve('@logseq/libs'));
 const worker = await bundle('worker', 'src/worker.ts');
 const main = await bundle('main', 'src/main.ts', { define: { WORKER_FILE: JSON.stringify(worker) } });
 const css = await readFile('src/settings.css');

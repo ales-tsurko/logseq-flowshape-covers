@@ -1,6 +1,6 @@
-import '../vendor/flowshape/patterns/index';
-import { getPattern, listPatterns, generateSafe, type Params } from '../vendor/flowshape/patterns/registry';
-import { el, serialize, type Palette } from '../vendor/flowshape/core/svg';
+import '../external/flowshape/src/patterns/index';
+import { getPattern, listPatterns, generateSafe, type Params } from '../external/flowshape/src/patterns/registry';
+import { el, serialize, type Palette } from '../external/flowshape/src/core/svg';
 
 export { listPatterns, getPattern };
 export type { Palette };

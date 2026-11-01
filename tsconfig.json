@@ -4,5 +4,5 @@
     "lib": ["ES2022", "DOM", "WebWorker"], "strict": true,
     "skipLibCheck": true, "noEmit": true, "types": ["node"]
   },
-  "include": ["src", "vendor/flowshape", "tests"]
+  "include": ["src", "tests"]
 }
