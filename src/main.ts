@@ -18,6 +18,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
 let storedRules: TagRule[] = [];
 let automaticEnabled = true;
+let toolbarButtonVisible = false;
 let revision = 0;
 let closeSettings: (() => void) | undefined;
 const headers = new PageHeaders(api);
@@ -31,6 +32,13 @@ const jobs = new Map<number, { resolve: (value: string) => void; reject: (error:
 const cleanups: Array<() => void> = [];
 const $ = (id: string) => document.getElementById(id)!;
 const qualified = (ident: unknown) => String(ident).replace(/^:/, '');
+function updateToolbarButton(visible: boolean) {
+  if (visible === toolbarButtonVisible) return;
+  api.App.registerUIItem('toolbar', { key: 'flowshape-covers', template: visible
+    ? '<a class="button" data-on-click="openSettings" title="Flowshape cover settings" aria-label="Flowshape cover settings"><i class="ti ti-photo"></i></a>'
+    : '' });
+  toolbarButtonVisible = visible;
+}
 function enabledGraph(name: string) {
   return automaticEnabled && rulesForGraph(storedRules, name).some(rule => rule.enabled);
 }
@@ -247,11 +255,12 @@ async function openSettings() {
   const page = await api.Editor.getCurrentPage();
   const uuid = String(page?.uuid || page?.['block/uuid'] || 'b8466ada-3750-462f-a4c5-8ea70fbb91eb');
   closeSettings = showSettings({ api, graph: graphName(graph.name), tags: await loadTags(), rules: storedRules,
-    enabled: automaticEnabled, status: stats, render: config => generate(uuid, config),
-    save: (rules, enabled) => {
+    enabled: automaticEnabled, showToolbarButton: toolbarButtonVisible, status: stats, render: config => generate(uuid, config),
+    save: (rules, enabled, showToolbarButton) => {
       automaticEnabled = enabled;
       storedRules = normalizeRules(rules); revision++; watched = undefined; failed.clear(); headers.clear(true);
-      api.updateSettings({ rules: structuredClone(storedRules), rulesVersion: 1, enabled }); schedule(0);
+      api.updateSettings({ rules: structuredClone(storedRules), rulesVersion: 1, enabled, showToolbarButton });
+      updateToolbarButton(showToolbarButton); schedule(0);
     }, fill: () => { failed.clear(); schedule(0); },
   });
 }
@@ -273,6 +282,7 @@ async function main() {
   api.provideModel({ openSettings: () => void openSettings().catch(report) });
   api.useSettingsSchema([
     { key: 'enabled', type: 'boolean', default: true, title: 'Automatic covers', description: 'Generate covers only for explicitly configured tags. Manual covers are preserved.' },
+    { key: 'showToolbarButton', type: 'boolean', default: false, title: 'Show toolbar button', description: 'Show the cover settings button in the toolbar.' },
     { key: 'configure', type: 'button', default: null, title: 'Tag cover rules', description: 'Choose tags, algorithms, and optional page headers.', buttonText: 'Open cover settings', buttonAction: 'openSettings' },
   ]);
   api.setMainUIInlineStyle({ position: 'fixed', inset: '0', zIndex: 1000, backgroundColor: 'rgba(0,0,0,.25)' });
@@ -283,14 +293,14 @@ async function main() {
     const uuid = page?.uuid || page?.['block/uuid'];
     if (uuid) { failed.clear(); await run(String(uuid)).catch(report); }
   });
-  api.App.registerUIItem('toolbar', { key: 'flowshape-covers', template: '<a class="button" data-on-click="openSettings" title="Flowshape cover settings"><i class="ti ti-photo"></i></a>' });
+  updateToolbarButton(api.settings?.showToolbarButton === true);
   cleanups.push(api.DB.onChanged((event: any) => { if (shouldScan(event)) schedule(); }));
   cleanups.push(api.App.onCurrentGraphChanged(() => { revision++; watched = undefined; failed.clear(); headers.clear(true); schedule(1000); }));
   cleanups.push(api.App.onRouteChanged(() => { headers.clear(); void refreshHeader(); }));
   cleanups.push(api.App.onPageHeadActionsSlotted(() => void refreshHeader()));
   cleanups.push(api.App.onThemeModeChanged(() => { schedule(900); }));
   cleanups.push(api.App.onThemeChanged(() => { schedule(1000); }));
-  cleanups.push(api.onSettingsChanged((settings: any) => { automaticEnabled = settings.enabled !== false; storedRules = normalizeRules(settings.rules); revision++; watched = undefined; failed.clear(); headers.clear(true); schedule(); }));
+  cleanups.push(api.onSettingsChanged((settings: any) => { updateToolbarButton(settings.showToolbarButton === true); automaticEnabled = settings.enabled !== false; storedRules = normalizeRules(settings.rules); revision++; watched = undefined; failed.clear(); headers.clear(true); schedule(); }));
   // Current DB builds can omit plugin change hooks. One small reference query
   // catches those events without rescanning or regenerating unchanged covers.
   const snapshotTimer = setInterval(() => void checkSnapshot(), 5000);

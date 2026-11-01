@@ -12,9 +12,10 @@ export interface SettingsOptions {
   tags: TagInfo[];
   rules: TagRule[];
   enabled: boolean;
+  showToolbarButton: boolean;
   status: string;
   render: (config: CoverConfig) => Promise<string>;
-  save: (rules: TagRule[], enabled: boolean) => void;
+  save: (rules: TagRule[], enabled: boolean, showToolbarButton: boolean) => void;
   fill: () => void;
 }
 export function showSettings(opts: SettingsOptions) {
@@ -22,6 +23,7 @@ export function showSettings(opts: SettingsOptions) {
   let local = rulesForGraph(allRules, opts.graph);
   let selected = local[0]?.tagUuid || '';
   let enabled = opts.enabled;
+  let showToolbarButton = opts.showToolbarButton;
   let previewUrl = '';
   let version = 0;
   let closed = false;
@@ -79,6 +81,7 @@ export function showSettings(opts: SettingsOptions) {
     const pos = local.findIndex(rule => rule.tagUuid === selected);
     $('app').innerHTML = `<header><h2>Flowshape covers</h2><button id="close" aria-label="Close">✕</button></header>
       <div class="tag-settings"><div class="row"><label for="enabled">Automatic covers</label><input type="checkbox" id="enabled" ${enabled ? 'checked' : ''}></div>
+      <div class="row"><label for="toolbar-button">Show toolbar button</label><input type="checkbox" id="toolbar-button" ${showToolbarButton ? 'checked' : ''}></div>
       <div class="tag-add"><select id="add-tag" aria-label="Tag to configure"><option value="">Choose a tag in ${esc(opts.graph)}…</option>${available.map(tag => `<option value="${esc(tag.uuid)}">#${esc(tag.name)}</option>`).join('')}</select><button id="add">Add tag</button></div>
       ${local.length ? `<div class="tag-select"><select id="tag-rule" aria-label="Configured tag">${local.map(rule => `<option value="${esc(rule.tagUuid)}" ${rule.tagUuid === selected ? 'selected' : ''}>#${esc(label(rule))}${rule.enabled ? '' : ' · off'}</option>`).join('')}</select><button id="up" aria-label="Move rule up" ${pos <= 0 ? 'disabled' : ''}>↑</button><button id="down" aria-label="Move rule down" ${pos >= local.length - 1 ? 'disabled' : ''}>↓</button><button id="remove">Remove tag</button></div>` : ''}
       <p class="hint">Only configured tags generate covers. Direct matches win, then rule order. Removing a rule keeps existing images.</p></div>
@@ -97,6 +100,7 @@ export function showSettings(opts: SettingsOptions) {
       <footer><span id="status">${esc(opts.status)}</span><button id="fill">Check missing covers</button><button id="save" class="primary">Apply settings</button></footer>`;
     $('close').onclick = () => { cleanup(); opts.api.hideMainUI(); };
     $('enabled').onchange = () => { enabled = field('enabled').checked; };
+    $('toolbar-button').onchange = () => { showToolbarButton = field('toolbar-button').checked; };
     $('add').onclick = () => {
       const tag = opts.tags.find(tag => tag.uuid === field('add-tag').value);
       if (!tag) return;
@@ -105,7 +109,7 @@ export function showSettings(opts: SettingsOptions) {
     $('fill').onclick = opts.fill;
     $('save').onclick = () => {
       for (const rule of local) rule.tagName = opts.tags.find(tag => tag.uuid === rule.tagUuid)?.name || rule.tagName;
-      opts.save([...allRules.filter(rule => rule.graph !== opts.graph), ...local], enabled);
+      opts.save([...allRules.filter(rule => rule.graph !== opts.graph), ...local], enabled, showToolbarButton);
       $('status').textContent = 'Settings saved. Updating configured tags…';
     };
     if (!rule) return;
