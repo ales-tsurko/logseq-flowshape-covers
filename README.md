@@ -1,29 +1,55 @@
 # Flowshape Covers for Logseq DB
 
 A local desktop plugin that assigns deterministic, theme-colored SVG covers to
-`#project` and `#idea`, including tags inheriting from them. A UUID hash is the
-seed, so renaming an item keeps its geometry. Existing manual covers are preserved.
+explicitly configured tags. New installations have **no configured tags** and do
+not generate any covers until you add a rule. UUID-based seeds keep the geometry
+stable when an item is renamed. Existing manual covers are preserved.
 
 Open **Flowshape covers: Settings** in the command palette, or use the photo icon
-in the toolbar. Choose one of 40 algorithms and adjust its parameters with a live
-preview. **Apply settings** refreshes existing generated covers and fills missing
-ones. The seed offset changes variations. Composition variation also distinguishes
-mathematical algorithms that do not consume a random seed themselves.
+in the toolbar. Choose a tag in the current graph and click **Add tag**. Select a
+configured tag to edit its own algorithm, parameters, seed offset, composition
+variation, and optional page header. There are 40 algorithms with a live preview.
+Click **Apply settings** to save all rule changes for this graph.
 
-Generation listens for DB changes and checks a small snapshot of tag/Cover
-references every five seconds to cover unreliable hook delivery in current DB
-builds. Unchanged references do not trigger generation. Add the existing Cover
-property to both tag schemas when enabling another graph.
+Rules use tag UUIDs, so renaming a tag does not break its settings. Rules are
+scoped to their graph. New rules match only their chosen tag. **Include inherited
+tags** extends a rule to descendant tags. Direct matches take priority over
+inherited matches, nearer ancestors take priority over farther ones, and ties
+use rule order. Use the arrow buttons to change that order. An explicit disabled
+rule can exclude a more specific tag from an inherited rule. Turning a rule off
+or removing it stops generation and leaves existing Cover images intact.
 
-The plugin reads the active theme's background, foreground, and accent variables.
-Changing the theme refreshes generated covers. Geometry stays stable. SVGs are
-normal graph assets, so other devices can display them once the assets sync.
-Automatic generation and theme recoloring require desktop Logseq with this plugin
-running. A device without the plugin sees the last generated colors.
+Upgrading an existing installation migrates its previous project/idea settings
+to two explicit rules, preserving the chosen algorithm and inheritance behavior.
+This one-time compatibility migration does not apply to new installations or to
+an explicitly empty rule list.
 
-The native plugin settings select which graphs are enabled. The initial graph is
-`kbase`. Algorithm settings are shared by enabled graphs. No server, service,
-credentials, or network requests are used at runtime.
+## Page headers
+
+Each tag rule has a **Show page header** toggle and **Header height (px)** setting
+(60–800 px). Headers start off. When enabled, pages matching that rule show their
+existing Cover image above the title at the content width, cropped to the chosen
+height. The header reuses the same asset, including manual image covers. Changing
+its height does not generate another image. Turning it off removes the header.
+
+Headers are displayed by the desktop plugin and are not inserted into page
+content. They require the plugin to be running and do not appear on iOS. Cover
+assets themselves can still sync and display on other devices.
+
+## Generation
+
+Generation listens for DB changes and checks a small tag/Cover reference snapshot
+every five seconds to cover unreliable hook delivery in current DB builds.
+Changing tags can select a different rule even when the Cover reference stays
+the same. Unchanged references do not trigger generation. The graph must have a
+Cover property of type Asset. The plugin adds that property to configured tag
+schemas when needed.
+
+Colors follow the active theme. Theme changes refresh generated images while
+keeping their geometry stable. On a device without the plugin, the images keep
+their last generated colors. The global **Automatic covers** switch pauses all
+rules and hides plugin headers. Runtime generation uses no server, credentials,
+or external network requests.
 
 ## Gallery appearance
 
@@ -62,7 +88,9 @@ The plugin uses Logseq's exported `write_assetsdir_file` API through the SDK App
 proxy, then its Editor APIs to create/tag an Asset and assign the existing,
 qualified Cover property. `writeAssetsdirFile` is exported but is not declared in
 the SDK types. This compatibility point should be checked after Logseq updates.
-Immutable assets are reused by UUID, settings, and palette fingerprint. Changing
+Page headers use the SDK UI provider anchored to the main page grid and Logseq’s
+exported asset URL API. These compatibility points should also be checked after
+Logseq updates. Immutable assets are reused by UUID, settings, and palette fingerprint. Changing
 settings may leave previous generated variants available in Assets for reuse.
 
 ## Attribution

@@ -1,8 +1,8 @@
 {
   "name": "logseq-flowshape-covers",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
-  "description": "Deterministic, theme-aware Flowshape covers for Logseq DB projects and ideas",
+  "description": "Deterministic, theme-aware covers and optional page headers for explicitly configured Logseq DB tags",
   "main": "dist/index.html",
   "author": "Local plugin",
   "license": "AGPL-3.0-or-later",

@@ -1,9 +1,12 @@
 declare const logseq: any;
 declare const WORKER_FILE: string;
-import { DEFAULT_CONFIG, listPatterns, getPattern, fingerprint, isOwnedCover, coverTitle, type CoverConfig, type Palette } from './engine';
+import { fingerprint, isOwnedCover, coverTitle, type CoverConfig, type Palette } from './engine';
 import { createCoverAsset } from './assets';
 import { shouldScan } from './events';
 import { snapshotKey } from './snapshot';
+import { graphName, normalizeRules, rulesForGraph, migrateLegacyRules, resolveRules, matchRule, type TagInfo, type TagRule } from './rules';
+import { PageHeaders, type HeaderTarget } from './headers';
+import { showSettings } from './settings';
 
 const api: any = logseq;
 const props = ['--ls-primary-background-color', '--ls-secondary-background-color', '--ls-primary-text-color', '--ls-secondary-text-color', '--ls-active-primary-color', '--ls-link-text-color', '--ls-border-color', '--ls-quaternary-background-color'];
@@ -13,9 +16,12 @@ let running = false;
 let queued = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
-let draft: CoverConfig = structuredClone(DEFAULT_CONFIG);
-let previewUrl = '';
-let previewVersion = 0;
+let storedRules: TagRule[] = [];
+let automaticEnabled = true;
+let revision = 0;
+let closeSettings: (() => void) | undefined;
+const headers = new PageHeaders(api);
+class Cancelled extends Error {}
 let worker: Worker | undefined;
 let polling = false;
 let watched: { graphKey: string; coverIdent: string; ids: string; signature: string; palette: string; inheritance: string } | undefined;
@@ -24,16 +30,17 @@ const failed = new Set<string>();
 const jobs = new Map<number, { resolve: (value: string) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 const cleanups: Array<() => void> = [];
 const $ = (id: string) => document.getElementById(id)!;
-const input = (id: string) => $(id) as HTMLInputElement;
-const escape = (value: unknown) => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const qualified = (ident: unknown) => String(ident).replace(/^:/, '');
-const graphName = (name: string) => name.replace(/^logseq_db_/, '');
-function config(): CoverConfig {
-  const saved = api.settings?.config || {};
-  return { ...DEFAULT_CONFIG, ...saved, parameters: saved.parameters || {} };
-}
 function enabledGraph(name: string) {
-  return api.settings?.enabled !== false && String(api.settings?.graphs ?? 'kbase').split(',').map((s: string) => graphName(s.trim())).includes(graphName(name));
+  return automaticEnabled && rulesForGraph(storedRules, name).some(rule => rule.enabled);
+}
+async function loadTags(): Promise<TagInfo[]> {
+  return (await query('[:find ?id ?uuid ?title :where [?id :block/tags :logseq.class/Tag] [?id :block/uuid ?uuid] [?id :block/title ?title] (not [?id :logseq.property/deleted-at])]'))
+    .map(([id, uuid, name]) => ({ id, uuid: String(uuid), name: String(name) }));
+}
+async function refreshHeader() {
+  if (disposed) return;
+  try { await headers.refresh(); } catch (error) { console.warn('[Flowshape Covers] Page header', error); }
 }
 function setStatus(message: string) {
   stats = message;
@@ -87,6 +94,7 @@ function schedule(delay = 700) {
   timer = setTimeout(() => void run().catch(report), delay);
 }
 function report(error: unknown) {
+  if (error instanceof Cancelled) return;
   const message = errorMessage(error);
   setStatus(message);
   console.error('[Flowshape Covers]', error);
@@ -106,12 +114,13 @@ async function checkSnapshot() {
     if (!graph || !enabledGraph(graph.name)) return;
     const graphKey = graph.url || graph.path || graph.name;
     if (!watched || watched.graphKey !== graphKey) { schedule(0); return; }
+    await refreshHeader();
     await updateTheme();
     if (JSON.stringify(palette) !== watched.palette) { schedule(0); return; }
     const parents = await query('[:find ?child ?parent :where [?child :logseq.property.class/extends ?parent]]');
-    if (snapshotKey(parents as Array<[number, number]>) !== watched.inheritance) { schedule(0); return; }
-    const rows = await query(`[:find ?e ?cover :where [?e :block/tags ?t] [(contains? #{${watched.ids}} ?t)] [(get-else $ ?e :${watched.coverIdent} 0) ?cover] (not [?e :logseq.property/deleted-at])]`);
-    const signature = snapshotKey(rows as Array<[number, number]>);
+    if (snapshotKey(parents) !== watched.inheritance) { schedule(0); return; }
+    const rows = await query(`[:find ?e ?t ?cover :where [?e :block/tags ?t] [(contains? #{${watched.ids}} ?t)] [(get-else $ ?e :${watched.coverIdent} 0) ?cover] (not [?e :logseq.property/deleted-at])]`);
+    const signature = snapshotKey(rows);
     if (signature !== watched.signature) schedule(0);
   } catch (error) {
     console.warn('[Flowshape Covers] Snapshot check', error);
@@ -120,53 +129,69 @@ async function checkSnapshot() {
 async function run(onlyUuid?: string) {
   if (running) { queued = true; return; }
   const graph = await api.App.getCurrentGraph();
-  if (!graph || (!onlyUuid && !enabledGraph(graph.name))) return;
+  if (!graph || !enabledGraph(graph.name)) { headers.clear(true); setStatus('No active tag rules. Add a tag in cover settings.'); return; }
   running = true; queued = false;
   const graphKey = graph.url || graph.path || graph.name;
+  const rulesRevision = revision;
+  const graphRules = structuredClone(rulesForGraph(storedRules, graph.name));
   const checkGraph = async () => {
     const now = await api.App.getCurrentGraph();
-    if (disposed || (now?.url || now?.path || now?.name) !== graphKey) throw new Error('Graph changed, generation stopped');
+    if (disposed || rulesRevision !== revision || (now?.url || now?.path || now?.name) !== graphKey) throw new Cancelled('Generation superseded');
   };
   let added = 0, updated = 0, kept = 0, errors = 0;
   let stage = 'Read theme colors';
   try {
     await updateTheme();
     const generationPalette = { ...palette };
-    const cfg = config();
     stage = 'Read Cover schema';
     const coverProperties = await query('[:find ?p ?ident ?uuid ?type :where [?p :block/title "Cover"] [?p :db/ident ?ident] [?p :block/uuid ?uuid] [?p :logseq.property/type ?type]]');
     const cover = coverProperties.find(row => qualified(row[3]) === 'asset');
     if (!cover) throw new Error('Add a Cover property of type Asset to this graph first');
     const [coverId, rawCoverIdent] = cover;
     const coverIdent = qualified(rawCoverIdent);
-    stage = 'Read project and idea tags';
-    const tagRows = await query('[:find ?id ?uuid ?title :where [?id :block/tags :logseq.class/Tag] [?id :block/uuid ?uuid] [?id :block/title ?title]]');
-    const tags = tagRows.filter(row => ['project', 'idea'].includes(String(row[2]).toLowerCase()));
-    if (!tags.length) throw new Error('No project or idea tag found');
+    stage = 'Read configured tags';
+    const tags = await loadTags();
+    const inheritance = await query('[:find ?child ?parent :where [?child :logseq.property.class/extends ?parent]]');
+    const matches = resolveRules(graphRules, tags, inheritance);
+    if (!matches.size) { headers.clear(true); setStatus('Configured tags were not found in this graph.'); return; }
+    const tagIds = new Set(matches.keys());
+    const ids = [...tagIds].join(' ');
+    const schemaRows = await query('[:find ?tag :in $ ?cover :where [?tag :logseq.property.class/properties ?cover]]', coverId);
+    const withCover = new Set(schemaRows.map(row => row[0]));
+    for (const rule of graphRules.filter(rule => rule.enabled)) {
+      const tag = tags.find(tag => tag.uuid === rule.tagUuid);
+      if (tag && !withCover.has(tag.id)) { await checkGraph(); await api.Editor.addTagProperty(tag.uuid, String(cover[2])); }
+    }
     const assetTags = await query('[:find ?id ?uuid :where [?id :db/ident :logseq.class/Asset] [?id :block/uuid ?uuid]]');
     if (!assetTags.length) throw new Error('The graph’s built-in Asset tag could not be found');
     const assetTagUuid = String(assetTags[0][1]);
-    const tagIds = new Set<number>(tags.map(row => row[0]));
-    const inheritance = await query('[:find ?child ?parent :where [?child :logseq.property.class/extends ?parent]]');
-    for (let changed = true; changed;) {
-      changed = false;
-      for (const [child, parent] of inheritance) if (tagIds.has(parent) && !tagIds.has(child)) { tagIds.add(child); changed = true; }
+    stage = 'Find objects in configured tags';
+    const rawTargets = await query(`[:find ?e ?uuid ?title ?t :where [?e :block/tags ?t] [(contains? #{${ids}} ?t)] [?e :block/uuid ?uuid] [?e :block/title ?title] (not [?e :logseq.property/deleted-at])]`);
+    const nodes = new Map<number, { row: any[]; tags: number[] }>();
+    for (const row of rawTargets) {
+      if (!nodes.has(row[0])) nodes.set(row[0], { row: row.slice(0, 3), tags: [] });
+      nodes.get(row[0])!.tags.push(row[3]);
     }
-    const ids = [...tagIds].join(' ');
-    stage = 'Find tagged projects and ideas';
-    const allTargets = await query(`[:find ?e ?uuid ?title :where [?e :block/tags ?t] [(contains? #{${ids}} ?t)] [?e :block/uuid ?uuid] [?e :block/title ?title] (not [?e :logseq.property/deleted-at])]`);
+    const winningRules = new Map<number, TagRule>();
+    const allTargets = [...nodes].flatMap(([id, node]) => {
+      const rule = matchRule(node.tags, matches);
+      if (!rule) return [];
+      winningRules.set(id, rule);
+      return [node.row];
+    });
     const targets = onlyUuid ? allTargets.filter(row => String(row[1]) === onlyUuid) : allTargets;
-    const coverRows = await query(`[:find ?e ?asset ?uuid ?title :where [?e :${coverIdent} ?asset] [?asset :block/uuid ?uuid] [?asset :block/title ?title]]`);
+    const coverRows = await query(`[:find ?e ?asset ?uuid ?title ?type :where [?e :${coverIdent} ?asset] [?asset :block/uuid ?uuid] [?asset :block/title ?title] [(get-else $ ?asset :logseq.property.asset/type "") ?type]]`);
     const covers = new Map(coverRows.map(row => [row[0], row.slice(1)]));
     const galleryViews = await query('[:find ?uuid ?owner :where [?v :logseq.property.view/feature-type :class-objects] [?v :logseq.property/view-for ?owner] [?v :block/uuid ?uuid] [?v :logseq.property.view/type ?type] [?type :block/title "Gallery View"] (not [?v :logseq.property.view/gallery-asset-property])]');
-    for (const [uuid, owner] of galleryViews) if (tagIds.has(owner)) {
+    for (const [uuid, owner] of galleryViews) if (matches.get(owner)?.rule.enabled) {
       await checkGraph(); await api.Editor.upsertBlockProperty(String(uuid), 'logseq.property.view/gallery-asset-property', coverId, { entityId: true });
     }
-    setStatus(`Checking ${targets.length} projects and ideas…`);
+    setStatus(`Checking ${targets.length} objects in configured tags…`);
     for (const [id, rawUuid] of targets) {
       stage = 'Generate and register cover';
       await checkGraph();
       const uuid = String(rawUuid);
+      const cfg = winningRules.get(id)!.config;
       const signature = fingerprint(uuid, cfg, generationPalette);
       const failureKey = `${graphKey}:${uuid}:${signature}`;
       if (failed.has(failureKey)) { errors++; continue; }
@@ -185,18 +210,27 @@ async function run(onlyUuid?: string) {
         // Re-read immediately before assignment, preserving an intervening manual change.
         const current = (await query(`[:find ?a :in $ ?e :where [?e :${coverIdent} ?a]]`, id))[0]?.[0];
         if (current !== old?.[0]) { kept++; continue; }
+        const currentTags = (await query('[:find ?t :in $ ?e :where [?e :block/tags ?t]]', id)).map(row => row[0]);
+        if (matchRule(currentTags, matches)?.tagUuid !== winningRules.get(id)!.tagUuid) { queued = true; continue; }
         await api.Editor.upsertBlockProperty(uuid, coverIdent, asset.id, { entityId: true });
-        covers.set(id, [asset.id, asset.uuid, title]);
+        covers.set(id, [asset.id, asset.uuid, title, 'svg']);
         if (old) updated++; else added++;
       } catch (error) {
+        if (error instanceof Cancelled) throw error;
         failed.add(failureKey); errors++;
         console.error('[Flowshape Covers]', uuid, error);
-        throw error;
       }
     }
-    watched = { graphKey, coverIdent, ids, signature: snapshotKey(allTargets.map(row => [row[0], covers.get(row[0])?.[0] || 0])), palette: JSON.stringify(generationPalette), inheritance: snapshotKey(inheritance as Array<[number, number]>) };
+    watched = { graphKey, coverIdent, ids, signature: snapshotKey(rawTargets.map(row => [row[0], row[3], covers.get(row[0])?.[0] || 0])), palette: JSON.stringify(generationPalette), inheritance: snapshotKey(inheritance) };
+    await checkGraph();
+    headers.setContext(graphKey, new Map<string, HeaderTarget>(allTargets.map(([id, uuid]) => {
+      const cover = covers.get(id);
+      return [String(uuid), { rule: winningRules.get(id)!, cover: cover ? { uuid: String(cover[1]), type: qualified(cover[3]) } : undefined }];
+    })));
+    await refreshHeader();
     setStatus(`${added} added · ${updated} updated · ${kept} kept${errors ? ` · ${errors} failed (see console)` : ''}`);
   } catch (error) {
+    if (error instanceof Cancelled) return;
     const message = errorMessage(error);
     throw new Error(`${stage}: ${message}`);
   } finally {
@@ -205,77 +239,41 @@ async function run(onlyUuid?: string) {
   }
 }
 
-function nice(label: string) { return label.replace(/^.*\./, '').replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()); }
-async function preview() {
-  const version = ++previewVersion;
-  try {
-    const page = await api.Editor.getCurrentPage();
-    const svg = await generate(String(page?.uuid || page?.['block/uuid'] || 'b8466ada-3750-462f-a4c5-8ea70fbb91eb'), draft);
-    if (version !== previewVersion || !document.getElementById('preview')) return;
-    URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    ($('preview') as HTMLImageElement).src = previewUrl;
-  } catch (error) { if (version === previewVersion) setStatus(String(error)); }
-}
-function renderParams() {
-  const def = getPattern(draft.pattern)!;
-  const saved = draft.parameters[def.id] || {};
-  $('params').innerHTML = def.params.filter(p => !p.hidden).map(p => {
-    const value = saved[p.key] ?? p.default;
-    const id = `param-${p.key}`;
-    const control = p.kind === 'enum'
-      ? `<select id="${id}">${p.options?.map((label, index) => `<option value="${index}" ${index === value ? 'selected' : ''}>${escape(nice(label))}</option>`).join('')}</select>`
-      : `<input id="${id}" type="${p.kind === 'bool' ? 'checkbox' : 'number'}" min="${p.min}" max="${p.max}" step="${p.step}" value="${value}" ${p.kind === 'bool' && value ? 'checked' : ''}>`;
-    return `<div class="row"><label for="${id}">${escape(nice(p.label))}</label>${control}</div>`;
-  }).join('');
-  for (const p of def.params.filter(p => !p.hidden)) {
-    const el = input(`param-${p.key}`);
-    el.onchange = () => {
-      const value = p.kind === 'bool' ? Number(el.checked) : Number(el.value);
-      if (!Number.isFinite(value)) return;
-      draft.parameters[def.id] = { ...draft.parameters[def.id], [p.key]: Math.max(p.min, Math.min(p.max, value)) };
-      updateDependencies(); void preview();
-    };
-  }
-  updateDependencies();
-  function updateDependencies() {
-    for (const p of def.params) if (p.dependsOn && !p.hidden) {
-      const gate = def.params.find(row => row.key === p.dependsOn!.key)!;
-      input(`param-${p.key}`).disabled = !p.dependsOn.values.includes(draft.parameters[def.id]?.[gate.key] ?? gate.default);
-    }
-  }
-}
 async function openSettings() {
-  await updateTheme(); draft = structuredClone(config());
+  closeSettings?.();
+  await updateTheme();
   const graph = await api.App.getCurrentGraph();
-  $('app').innerHTML = `<header><h2>Flowshape covers</h2><button id="close" aria-label="Close">✕</button></header><main><section class="controls"><div class="row"><label for="enabled">Enabled in ${escape(graphName(graph?.name || 'this graph'))}</label><input type="checkbox" id="enabled" ${enabledGraph(graph?.name) ? 'checked' : ''}></div><div class="row"><label for="pattern">Algorithm</label><select id="pattern">${listPatterns().sort((a, b) => a.id.localeCompare(b.id)).map(p => `<option value="${p.id}" ${p.id === draft.pattern ? 'selected' : ''}>${nice(p.id)}${p.heavy ? ' · heavier' : ''}</option>`).join('')}</select></div><div class="row"><label for="seed">Seed offset</label><input type="number" id="seed" step="1" value="${draft.seedOffset}"></div><div class="row"><label for="variation">Composition variation</label><input type="number" id="variation" min="0" max="1" step="0.05" value="${draft.variation}"></div><p class="hint">Each UUID has a stable seed. Existing manual covers are preserved. Colors follow the active theme.</p><div class="section">Algorithm parameters</div><div id="params"></div><button id="reset" style="margin-top:12px">Reset algorithm parameters</button></section><aside class="preview"><img id="preview" alt="Cover preview"><p class="hint">Preview uses the current page’s UUID. Saved settings apply to all generated covers in enabled graphs.</p></aside></main><footer><span id="status">${escape(stats)}</span><button id="fill">Check missing covers</button><button id="save" class="primary">Apply settings</button></footer>`;
-  $('close').onclick = () => api.hideMainUI();
-  $('pattern').onchange = () => { draft.pattern = input('pattern').value; renderParams(); void preview(); };
-  $('seed').onchange = () => { draft.seedOffset = Math.trunc(Number(input('seed').value) || 0); void preview(); };
-  $('variation').onchange = () => { draft.variation = Math.max(0, Math.min(1, Number(input('variation').value) || 0)); void preview(); };
-  $('reset').onclick = () => { delete draft.parameters[draft.pattern]; renderParams(); void preview(); };
-  $('fill').onclick = () => { failed.clear(); schedule(0); };
-  $('save').onclick = () => {
-    const graphs = new Set(String(api.settings?.graphs ?? 'kbase').split(',').map((s: string) => graphName(s.trim())).filter(Boolean));
-    if (input('enabled').checked) graphs.add(graphName(graph.name)); else graphs.delete(graphName(graph.name));
-    api.updateSettings({ config: structuredClone(draft), enabled: true, graphs: [...graphs].join(',') });
-    failed.clear(); setStatus('Settings saved. Updating generated covers…'); schedule(0);
-  };
-  renderParams(); api.showMainUI({ autoFocus: true }); void preview();
+  if (!graph) throw new Error('Open a graph to configure tag covers');
+  const page = await api.Editor.getCurrentPage();
+  const uuid = String(page?.uuid || page?.['block/uuid'] || 'b8466ada-3750-462f-a4c5-8ea70fbb91eb');
+  closeSettings = showSettings({ api, graph: graphName(graph.name), tags: await loadTags(), rules: storedRules,
+    enabled: automaticEnabled, status: stats, render: config => generate(uuid, config),
+    save: (rules, enabled) => {
+      automaticEnabled = enabled;
+      storedRules = normalizeRules(rules); revision++; watched = undefined; failed.clear(); headers.clear(true);
+      api.updateSettings({ rules: structuredClone(storedRules), rulesVersion: 1, enabled }); schedule(0);
+    }, fill: () => { failed.clear(); schedule(0); },
+  });
 }
 
 async function main() {
+  automaticEnabled = api.settings?.enabled !== false;
+  storedRules = normalizeRules(api.settings?.rules);
+  const graph = await api.App.getCurrentGraph();
+  if (graph && !Array.isArray(api.settings?.rules)) {
+    storedRules = normalizeRules(migrateLegacyRules(api.settings, graph.name, await loadTags()) || []);
+    api.updateSettings({ rules: structuredClone(storedRules), rulesVersion: 1 });
+  }
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.stopPropagation(); api.hideMainUI(); }
+    if (event.key === 'Escape') { event.stopPropagation(); closeSettings?.(); api.hideMainUI(); }
   });
   document.addEventListener('click', event => {
-    if (event.target === document.body || event.target === document.documentElement) api.hideMainUI();
+    if (event.target === document.body || event.target === document.documentElement) { closeSettings?.(); api.hideMainUI(); }
   });
   api.provideModel({ openSettings: () => void openSettings().catch(report) });
   api.useSettingsSchema([
-    { key: 'enabled', type: 'boolean', default: true, title: 'Automatic covers', description: 'Generate covers for project and idea tags, including inherited tags. Manual covers are preserved.' },
-    { key: 'graphs', type: 'string', default: 'kbase', title: 'Graphs', description: 'Comma-separated graph names where cover generation is enabled.' },
-    { key: 'configure', type: 'button', default: null, title: 'Algorithm and parameters', description: 'Configure the pattern with a live preview.', buttonText: 'Open cover settings', buttonAction: 'openSettings' },
+    { key: 'enabled', type: 'boolean', default: true, title: 'Automatic covers', description: 'Generate covers only for explicitly configured tags. Manual covers are preserved.' },
+    { key: 'configure', type: 'button', default: null, title: 'Tag cover rules', description: 'Choose tags, algorithms, and optional page headers.', buttonText: 'Open cover settings', buttonAction: 'openSettings' },
   ]);
   api.setMainUIInlineStyle({ position: 'fixed', inset: '0', zIndex: 1000, backgroundColor: 'rgba(0,0,0,.25)' });
   api.App.registerCommandPalette({ key: 'flowshape-cover-settings', label: 'Flowshape covers: Settings' }, () => void openSettings().catch(report));
@@ -287,16 +285,18 @@ async function main() {
   });
   api.App.registerUIItem('toolbar', { key: 'flowshape-covers', template: '<a class="button" data-on-click="openSettings" title="Flowshape cover settings"><i class="ti ti-photo"></i></a>' });
   cleanups.push(api.DB.onChanged((event: any) => { if (shouldScan(event)) schedule(); }));
-  cleanups.push(api.App.onCurrentGraphChanged(() => { watched = undefined; failed.clear(); schedule(1000); }));
-  cleanups.push(api.App.onThemeModeChanged(() => { schedule(900); void updateTheme().then(() => void preview()).catch(report); }));
+  cleanups.push(api.App.onCurrentGraphChanged(() => { revision++; watched = undefined; failed.clear(); headers.clear(true); schedule(1000); }));
+  cleanups.push(api.App.onRouteChanged(() => { headers.clear(); void refreshHeader(); }));
+  cleanups.push(api.App.onPageHeadActionsSlotted(() => void refreshHeader()));
+  cleanups.push(api.App.onThemeModeChanged(() => { schedule(900); }));
   cleanups.push(api.App.onThemeChanged(() => { schedule(1000); }));
-  api.onSettingsChanged(() => { failed.clear(); schedule(); });
+  cleanups.push(api.onSettingsChanged((settings: any) => { automaticEnabled = settings.enabled !== false; storedRules = normalizeRules(settings.rules); revision++; watched = undefined; failed.clear(); headers.clear(true); schedule(); }));
   // Current DB builds can omit plugin change hooks. One small reference query
   // catches those events without rescanning or regenerating unchanged covers.
   const snapshotTimer = setInterval(() => void checkSnapshot(), 5000);
   api.beforeunload(() => {
     disposed = true; clearTimeout(timer); clearInterval(snapshotTimer); cleanups.forEach(off => off?.());
-    stopWorker('Plugin unloaded'); URL.revokeObjectURL(previewUrl);
+    closeSettings?.(); headers.clear(true); stopWorker('Plugin unloaded');
   });
   schedule(1200);
 }
