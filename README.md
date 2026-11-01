@@ -54,9 +54,14 @@ or external network requests.
 ## Gallery appearance
 
 `src/gallery.css` is installed in this graph's `logseq/custom.css`. It applies to
-native gallery cards that have an image cover. Images fill the card, with metadata
-overlaid at the bottom on an opaque background using Logseq theme variables.
+native gallery cards that have an image cover. Images fill the card, with small
+theme-colored backgrounds behind the title and property values at the bottom.
+The metadata container is transparent so the image stays visible around labels.
 Choose **Cover** as the gallery's cover property where necessary.
+
+`styles/gallery-layout.css` is a separate graph appearance customization. It keeps
+native card widths, uses a consistent gap, and wraps cards from the left without
+stretching or distributing the final row. It is also installed in `custom.css`.
 
 Logseq DB 2.0.2 can omit the internal `query-result` view type on query blocks,
 which prevents covers from rendering even when Cover is selected. The native

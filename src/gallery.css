@@ -1,4 +1,4 @@
-/* Flowshape gallery layout. All image covers fill their cards, metadata uses native theme tokens. */
+/* Flowshape gallery layout. Full-card images with theme-colored text labels. */
 .ls-cards .ls-card-item.has-gallery-asset {
   position: relative;
   isolation: isolate;
@@ -34,8 +34,22 @@
   min-width: 0;
   max-width: 100%;
   padding: 0.55rem 0.65rem;
+  align-items: flex-start;
+  gap: 0.2rem;
+  background: transparent;
+  border: 0;
+}
+.ls-cards .ls-card-item.has-gallery-asset .ls-gallery-card-title,
+.ls-cards .ls-card-item.has-gallery-asset .ls-gallery-card-property .property-value-inner {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
   background: var(--ls-primary-background-color, hsl(var(--background)));
   color: var(--ls-primary-text-color, hsl(var(--foreground)));
-  border-top: 1px solid var(--ls-border-color, hsl(var(--border)));
+}
+.ls-cards .ls-card-item.has-gallery-asset .ls-gallery-card-property {
+  width: fit-content;
+  max-width: 100%;
 }
 .ls-cards .ls-card-item.has-gallery-asset .ls-gallery-card-select { z-index: 2; }
