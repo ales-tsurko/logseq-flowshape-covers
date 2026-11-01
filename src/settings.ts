@@ -87,12 +87,13 @@ export function showSettings(opts: SettingsOptions) {
       <div class="row"><label for="descendants">Include inherited tags</label><input type="checkbox" id="descendants" ${rule.descendants ? 'checked' : ''}></div>
       <div class="row"><label for="pattern">Algorithm</label><select id="pattern">${patterns.map(p => `<option value="${p.id}" ${p.id === rule.config.pattern ? 'selected' : ''}>${nice(p.id)}${p.heavy ? ' · heavier' : ''}</option>`).join('')}</select></div>
       <div class="row"><label for="seed">Seed offset</label><input type="number" id="seed" step="1" value="${rule.config.seedOffset}"></div>
-      <div class="row"><label for="variation">Composition variation</label><input type="number" id="variation" min="0" max="1" step="0.05" value="${rule.config.variation}"></div>
+      <div class="row"><label for="parameter-variation">Parameter variation</label><input type="number" id="parameter-variation" min="0" max="1" step="0.05" value="${rule.config.parameterVariation}"></div>
+      <div class="row"><label for="variation">Rotation variation</label><input type="number" id="variation" min="0" max="1" step="0.05" value="${rule.config.variation}"></div>
       <div class="section">Page header</div><div class="row"><label for="header-enabled">Show page header</label><input type="checkbox" id="header-enabled" ${rule.header.enabled ? 'checked' : ''}></div>
       <div class="row"><label for="header-height">Header height (px)</label><input type="number" id="header-height" min="60" max="800" step="10" value="${rule.header.height}" ${rule.header.enabled ? '' : 'disabled'}></div>
       <p class="hint">Uses the existing Cover image, cropped to the page width. Header visibility belongs to this tag rule.</p>
       <div class="section">Algorithm parameters</div><div id="params"></div><button id="reset" class="reset">Reset algorithm parameters</button></section>
-      <aside class="preview"><img id="preview" alt="Cover preview"><div id="header-preview-wrap" class="header-preview" ${rule.header.enabled ? '' : 'hidden'}><img id="header-preview" alt="Page header preview"></div><p class="hint">UUID-based seed. Colors follow the active theme. Manual covers are preserved.</p></aside></main>` : '<div class="empty">No tags configured. Add a tag to enable covers.</div>'}
+      <aside class="preview"><img id="preview" alt="Cover preview"><div id="header-preview-wrap" class="header-preview" ${rule.header.enabled ? '' : 'hidden'}><img id="header-preview" alt="Page header preview"></div></aside></main>` : '<div class="empty">No tags configured. Add a tag to enable covers.</div>'}
       <footer><span id="status">${esc(opts.status)}</span><button id="fill">Check missing covers</button><button id="save" class="primary">Apply settings</button></footer>`;
     $('close').onclick = () => { cleanup(); opts.api.hideMainUI(); };
     $('enabled').onchange = () => { enabled = field('enabled').checked; };
@@ -116,6 +117,7 @@ export function showSettings(opts: SettingsOptions) {
     $('descendants').onchange = () => { rule.descendants = field('descendants').checked; };
     $('pattern').onchange = () => { rule.config.pattern = field('pattern').value; renderParams(); void preview(); };
     $('seed').onchange = () => { rule.config.seedOffset = Math.trunc(Number(field('seed').value) || 0); void preview(); };
+    $('parameter-variation').onchange = () => { rule.config.parameterVariation = Math.max(0, Math.min(1, Number(field('parameter-variation').value) || 0)); field('parameter-variation').value = String(rule.config.parameterVariation); void preview(); };
     $('variation').onchange = () => { rule.config.variation = Math.max(0, Math.min(1, Number(field('variation').value) || 0)); void preview(); };
     $('header-enabled').onchange = () => { rule.header.enabled = field('header-enabled').checked; field('header-height').disabled = !rule.header.enabled; void preview(); };
     $('header-height').onchange = () => { rule.header.height = Math.round(Math.max(60, Math.min(800, Number(field('header-height').value) || 200))); field('header-height').value = String(rule.header.height); void preview(); };

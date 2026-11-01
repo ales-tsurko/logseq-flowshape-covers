@@ -33,6 +33,9 @@ Add a **Cover** property of type **Asset** to your tag. Open
 your settings. No tags are enabled by default. Select **Cover** as the image
 property in gallery views.
 
+**Parameter variation** varies shapes per page. Set it to **0** for fixed parameters
+or **1** for the full range. **Rotation variation** controls rotation separately.
+
 The screenshot uses a custom Logseq theme and CSS. For full-card covers, copy
 [gallery.css](src/gallery.css) into your graph's `logseq/custom.css`.
 

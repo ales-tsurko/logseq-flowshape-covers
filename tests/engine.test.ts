@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CONFIG, renderCover, seedFor, fingerprint, isOwnedCover, coverTitle, listPatterns } from '../src/engine';
+import { DEFAULT_CONFIG, renderCover, parametersFor, seedFor, fingerprint, isOwnedCover, coverTitle, listPatterns } from '../src/engine';
 import { createCoverAsset } from '../src/assets';
 import { shouldScan } from '../src/events';
 import { snapshotKey } from '../src/snapshot';
@@ -35,8 +35,37 @@ test('theme changes update colors without changing the geometry', () => {
 test('parameters and seed offset invalidate the cached cover', () => {
   const changed = { ...DEFAULT_CONFIG, seedOffset: 1 };
   assert.notEqual(fingerprint(uuid, DEFAULT_CONFIG, pal), fingerprint(uuid, changed, pal));
-  const params = { ...DEFAULT_CONFIG, parameters: { truchet: { variant: 1 } } };
-  assert.notEqual(renderCover(uuid, DEFAULT_CONFIG, pal), renderCover(uuid, params, pal));
+  const fixed = { ...DEFAULT_CONFIG, parameterVariation: 0 };
+  const params = { ...fixed, parameters: { truchet: { variant: 1 } } };
+  assert.notEqual(renderCover(uuid, fixed, pal), renderCover(uuid, params, pal));
+  assert.notEqual(fingerprint(uuid, DEFAULT_CONFIG, pal), fingerprint(uuid, { ...DEFAULT_CONFIG, parameterVariation: 0.75 }, pal));
+});
+test('parameter variation gives seedless patterns stable, distinct shapes without rotation', () => {
+  const other = 'b8466ada-3750-462f-a4c5-8ea70fbb91eb';
+  const config = { ...DEFAULT_CONFIG, pattern: 'bands', variation: 0, parameterVariation: 0 };
+  assert.equal(renderCover(uuid, config, pal), renderCover(other, config, pal));
+  config.parameterVariation = 0.5;
+  const before = structuredClone(config);
+  const svg = renderCover(uuid, config, pal);
+  assert.equal(svg, renderCover(uuid, config, pal));
+  assert.equal(svg, renderCover(uuid.toUpperCase(), config, pal));
+  assert.notEqual(svg, renderCover(other, config, pal));
+  assert.notDeepEqual(parametersFor(uuid, config), parametersFor(uuid, { ...config, seedOffset: 1 }));
+  assert.deepEqual(config, before);
+});
+test('parameter variation preserves cosmetic and hidden controls across all algorithms', () => {
+  for (const def of listPatterns()) {
+    const fixed = Object.fromEntries(def.params.filter(p => p.hidden || ['strokeWidth', 'opacity', 'size'].includes(p.key))
+      .map(p => [p.key, p.min]));
+    const config = { ...DEFAULT_CONFIG, pattern: def.id, parameterVariation: 1, parameters: { [def.id]: fixed } };
+    const params = parametersFor(uuid, config);
+    for (const [key, value] of Object.entries(fixed)) assert.equal(params[key], value, `${def.id}.${key}`);
+    for (const p of def.params) {
+      assert.ok(Number.isFinite(params[p.key]), `${def.id}.${p.key}`);
+      assert.ok(params[p.key]! >= p.min && params[p.key]! <= p.max, `${def.id}.${p.key}`);
+      if (p.kind !== 'float') assert.equal(params[p.key], Math.round(params[p.key]!), `${def.id}.${p.key}`);
+    }
+  }
 });
 test('manual covers and other projects’ covers are never considered owned', () => {
   assert.equal(isOwnedCover('My cover', uuid), false);
@@ -45,8 +74,8 @@ test('manual covers and other projects’ covers are never considered owned', ()
 });
 test('all 40 algorithms produce finite, self-contained SVGs', { timeout: 60000 }, () => {
   assert.equal(listPatterns().length, 40);
-  for (const def of listPatterns()) {
-    const svg = renderCover(uuid, { ...DEFAULT_CONFIG, pattern: def.id }, pal);
+  for (const def of listPatterns()) for (const parameterVariation of [0, 0.5, 1]) {
+    const svg = renderCover(uuid, { ...DEFAULT_CONFIG, pattern: def.id, parameterVariation }, pal);
     assert.match(svg, /^<svg/);
     assert.match(svg, /width="480"/);
     assert.match(svg, /height="640"/);

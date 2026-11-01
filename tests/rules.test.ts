@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newRule, normalizeRules, rulesForGraph, migrateLegacyRules, resolveRules, matchRule, type TagInfo } from '../src/rules';
+import { newRule, normalizeConfig, normalizeRules, rulesForGraph, migrateLegacyRules, resolveRules, matchRule, type TagInfo } from '../src/rules';
 import { DEFAULT_CONFIG, fingerprint } from '../src/engine';
 import { snapshotKey } from '../src/snapshot';
 import { PageHeaders } from '../src/headers';
@@ -23,6 +23,21 @@ test('migration preserves the selected algorithm as separate UUID-based rules', 
   assert.ok(rules.every(r => r.config.pattern === 'delaunay' && !r.header.enabled));
   rules[0]!.config.parameters.delaunay!.points = 800;
   assert.equal(rules[1]!.config.parameters.delaunay!.points, 440);
+});
+test('parameter variation is per tag and old settings retain their previous output', () => {
+  const { parameterVariation, ...legacy } = DEFAULT_CONFIG;
+  assert.equal(normalizeConfig(legacy).parameterVariation, 0);
+  assert.equal(normalizeConfig({ parameterVariation: NaN }).parameterVariation, 0);
+  assert.equal(normalizeConfig({ parameterVariation: -1 }).parameterVariation, 0);
+  assert.equal(normalizeConfig({ parameterVariation: 2 }).parameterVariation, 1);
+  const project = newRule('kbase', tags[0]!);
+  const idea = newRule('kbase', tags[1]!);
+  assert.equal(project.config.parameterVariation, parameterVariation);
+  project.config.parameterVariation = 0.9;
+  assert.equal(idea.config.parameterVariation, parameterVariation);
+  const normalized = normalizeRules([project, idea]);
+  assert.equal(normalized[0]!.config.parameterVariation, 0.9);
+  assert.equal(normalized[1]!.config.parameterVariation, parameterVariation);
 });
 test('only opted-in tags match and graph settings are isolated', () => {
   const rule = newRule('kbase', tags[2]!);

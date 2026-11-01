@@ -23,6 +23,7 @@ export function normalizeConfig(value: Partial<CoverConfig> = {}): CoverConfig {
     parameters: structuredClone(value.parameters || {}),
     seedOffset: Math.trunc(bounded(value.seedOffset, 0, -2147483648, 2147483647)),
     variation: bounded(value.variation, DEFAULT_CONFIG.variation, 0, 1),
+    parameterVariation: bounded(value.parameterVariation, 0, 0, 1),
   };
 }
 export function newRule(graph: string, tag: TagInfo, config = DEFAULT_CONFIG): TagRule {
