@@ -1,0 +1,27 @@
+:root { color-scheme: dark light; font-family: system-ui, sans-serif; color: var(--ls-primary-text-color, #d0d0d0); }
+* { box-sizing: border-box; }
+body { margin: 0; background: transparent; }
+#app { width: min(920px, 94vw); margin: 3vh auto; background: var(--ls-primary-background-color, #1a1a1a); border: 1px solid var(--ls-border-color, #444); border-radius: 10px; box-shadow: 0 12px 48px #0005; }
+header, footer { padding: 18px 22px; display: flex; align-items: center; gap: 12px; }
+header { border-bottom: 1px solid var(--ls-border-color, #444); }
+header h2 { margin: 0; font-size: 18px; flex: 1; }
+main { display: grid; grid-template-columns: 1fr 280px; gap: 24px; padding: 20px 22px; }
+.controls { max-height: 57vh; overflow: auto; padding-right: 12px; }
+.row { display: grid; grid-template-columns: minmax(110px, 1fr) 1fr; align-items: center; gap: 16px; min-height: 38px; border-bottom: 1px solid var(--ls-border-color, #444); padding: 5px 0; font-size: 13px; }
+.row label { color: var(--ls-secondary-text-color, #a0a0a0); text-transform: none; }
+input, select, button { font: inherit; color: inherit; background: var(--ls-secondary-background-color, #242424); border: 1px solid var(--ls-border-color, #444); border-radius: 5px; padding: 6px 9px; min-width: 0; }
+input[type=checkbox] { justify-self: start; }
+input[type=number], select { width: 100%; }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--ls-link-text-color, #aaa); outline-offset: 1px; }
+button { cursor: pointer; }
+button:hover { background: var(--ls-quaternary-background-color, #333); }
+button.primary { color: var(--ls-primary-background-color, #111); background: var(--ls-primary-text-color, #ddd); }
+button:disabled { opacity: .5; cursor: default; }
+.preview { align-self: start; }
+.preview img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 6px; background: var(--ls-secondary-background-color, #242424); }
+.hint, #status { font-size: 12px; line-height: 1.5; color: var(--ls-secondary-text-color, #aaa); }
+.hint { margin: 9px 0 0; }
+footer { border-top: 1px solid var(--ls-border-color, #444); }
+#status { flex: 1; }
+.section { margin: 18px 0 6px; font-size: 12px; font-weight: 600; }
+@media(max-width: 650px) { main { grid-template-columns: 1fr; } .preview { display: none; } }
