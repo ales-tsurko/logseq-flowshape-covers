@@ -1,6 +1,6 @@
 # Flowshape Covers for Logseq DB
 
-A local desktop plugin that assigns deterministic, theme-colored SVG covers to
+A desktop plugin that assigns deterministic, theme-colored SVG covers to
 explicitly configured tags. New installations have **no configured tags** and do
 not generate any covers until you add a rule. UUID-based seeds keep the geometry
 stable when an item is renamed. Existing manual covers are preserved.
@@ -53,15 +53,13 @@ or external network requests.
 
 ## Gallery appearance
 
-`src/gallery.css` is installed in this graph's `logseq/custom.css`. It applies to
-native gallery cards that have an image cover. Images fill the card, with small
-theme-colored backgrounds behind the title and property values at the bottom.
-The metadata container is transparent so the image stays visible around labels.
-Choose **Cover** as the gallery's cover property where necessary.
+Choose **Cover** as the gallery's cover property where necessary. The plugin
+leaves native gallery layout and card styling unchanged.
 
-`styles/gallery-layout.css` is a separate graph appearance customization. It keeps
-native card widths, uses a consistent gap, and wraps cards from the left without
-stretching or distributing the final row. It is also installed in `custom.css`.
+For an optional full-card cover presentation, copy `src/gallery.css` into your
+graph's `logseq/custom.css`. It uses theme-colored backgrounds behind the title
+and property values, with the image visible around them. This stylesheet is not
+loaded automatically and affects all native gallery cards with image covers.
 
 Logseq DB 2.0.2 can omit the internal `query-result` view type on query blocks,
 which prevents covers from rendering even when Cover is selected. The native
@@ -106,6 +104,6 @@ Vendored pattern generators and core geometry come from
 the [MIT license](vendor/flowshape/LICENSE). The original app is
 [flowshape.art](https://flowshape.art).
 
-The Logseq SDK is vendored from the installed app's revision `533ac43` (SDK
-0.3.4). Its [AGPL license](vendor/logseq-sdk/LICENSE.md) is retained. The old
-published npm SDK is not used. This combined local plugin is AGPL-3.0-or-later.
+The Logseq SDK is vendored from Logseq DB revision `533ac43` (SDK 0.3.4). Its
+[AGPL license](vendor/logseq-sdk/LICENSE.md) is retained. The old published npm
+SDK is not used. The plugin is licensed under AGPL-3.0-or-later.
