@@ -32,6 +32,18 @@ native gallery cards that have an image cover. Images fill the card, with metada
 overlaid at the bottom on an opaque background using Logseq theme variables.
 Choose **Cover** as the gallery's cover property where necessary.
 
+Logseq DB 2.0.2 can omit the internal `query-result` view type on query blocks,
+which prevents covers from rendering even when Cover is selected. The native
+plugin API cannot write this keyword value. For an affected query block, set it
+once with Logseq's CLI, then reload Logseq:
+
+```sh
+logseq upsert block --graph GRAPH --uuid QUERY_BLOCK_UUID \
+  --update-properties '{:logseq.property.view/feature-type :query-result}'
+```
+
+This repairs native view metadata without changing the query or CSS.
+
 ## Build and load
 
 ```sh
